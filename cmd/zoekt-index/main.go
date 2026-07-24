@@ -38,6 +38,7 @@ type fileInfo struct {
 
 type fileAggregator struct {
 	ignoreDirs map[string]struct{}
+	includeExt map[string]struct{}
 	sizeMax    int64
 	sink       chan fileInfo
 }
@@ -55,6 +56,12 @@ func (a *fileAggregator) add(path string, info os.FileInfo, err error) error {
 	}
 
 	if info.Mode().IsRegular() {
+		if len(a.includeExt) > 0 {
+			ext := strings.TrimPrefix(strings.ToLower(filepath.Ext(path)), ".")
+			if _, ok := a.includeExt[ext]; !ok {
+				return nil
+			}
+		}
 		a.sink <- fileInfo{path, info.Size()}
 	}
 	return nil
@@ -63,7 +70,9 @@ func (a *fileAggregator) add(path string, info os.FileInfo, err error) error {
 func main() {
 	cpuProfile := flag.String("cpu_profile", "", "write cpu profile to file")
 	ignoreDirs := flag.String("ignore_dirs", ".git,.hg,.svn", "comma separated list of directories to ignore.")
+	includeExt := flag.String("include_ext", "", "comma separated file extensions to include, without dots; empty includes every file")
 	metaFile := flag.String("meta", "", "path to .meta JSON file with repository description")
+	repositoryName := flag.String("name", "", "repository name stored in the index")
 	flag.Parse()
 
 	if flag.NArg() == 0 {
@@ -99,6 +108,20 @@ func main() {
 		}
 	}
 
+	includeExtMap := map[string]struct{}{}
+	if *includeExt != "" {
+		extensions := strings.Split(*includeExt, ",")
+		for _, extension := range extensions {
+			extension = strings.TrimPrefix(strings.ToLower(strings.TrimSpace(extension)), ".")
+			if extension != "" {
+				includeExtMap[extension] = struct{}{}
+			}
+		}
+		if len(includeExtMap) == 0 {
+			log.Fatal("-include_ext did not contain any file extensions")
+		}
+	}
+
 	if *metaFile != "" {
 		// Read and parse the .meta JSON file into opts.RepositoryDescription
 		data, err := os.ReadFile(*metaFile)
@@ -109,16 +132,19 @@ func main() {
 			log.Fatalf("failed to decode .meta file %s: %v", *metaFile, err)
 		}
 	}
+	if *repositoryName != "" {
+		opts.RepositoryDescription.Name = *repositoryName
+	}
 
 	for _, arg := range flag.Args() {
 		opts.RepositoryDescription.Source = arg
-		if err := indexArg(arg, *opts, ignoreDirMap); err != nil {
+		if err := indexArg(arg, *opts, ignoreDirMap, includeExtMap); err != nil {
 			log.Fatal(err)
 		}
 	}
 }
 
-func indexArg(arg string, opts index.Options, ignore map[string]struct{}) error {
+func indexArg(arg string, opts index.Options, ignore, includeExt map[string]struct{}) error {
 	dir, err := filepath.Abs(filepath.Clean(arg))
 	if err != nil {
 		return err
@@ -138,6 +164,7 @@ func indexArg(arg string, opts index.Options, ignore map[string]struct{}) error 
 	comm := make(chan fileInfo, 100)
 	agg := fileAggregator{
 		ignoreDirs: ignore,
+		includeExt: includeExt,
 		sink:       comm,
 		sizeMax:    int64(opts.SizeMax),
 	}
@@ -150,7 +177,11 @@ func indexArg(arg string, opts index.Options, ignore map[string]struct{}) error 
 	}()
 
 	for f := range comm {
-		displayName := strings.TrimPrefix(f.name, dir+"/")
+		displayName, err := filepath.Rel(dir, f.name)
+		if err != nil {
+			return err
+		}
+		displayName = filepath.ToSlash(displayName)
 		if f.size > int64(opts.SizeMax) && !opts.IgnoreSizeMax(displayName) {
 			if err := builder.Add(index.Document{
 				Name:       displayName,

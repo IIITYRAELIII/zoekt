@@ -57,6 +57,11 @@ try {
         "Процедура Выполнить()`nКонецПроцедуры`n",
         [Text.UTF8Encoding]::new($false)
     )
+    [IO.File]::WriteAllText(
+        [IO.Path]::Combine($corpus, 'НеИндексировать.txt'),
+        'МаркерИсключенногоФайла',
+        [Text.UTF8Encoding]::new($false)
+    )
 
     Push-Location $repositoryRoot
     try {
@@ -81,7 +86,9 @@ try {
 
     & ([IO.Path]::Combine($bin, 'zoekt-index.exe')) `
         -disable_ctags `
+        -include_ext bsl `
         -index $index `
+        -name 'windows-bsl-smoke' `
         $corpus
     if ($LASTEXITCODE -ne 0) {
         throw 'zoekt-index failed.'
@@ -95,6 +102,18 @@ try {
     }
     if (($searchOutput -join "`n") -notmatch 'ДинамическийСписок') {
         throw 'The Cyrillic BSL search did not return the expected match.'
+    }
+    if (($searchOutput -join "`n") -match [Regex]::Escape($corpus)) {
+        throw 'The index exposed an absolute source path instead of a relative file name.'
+    }
+    $excludedOutput = & ([IO.Path]::Combine($bin, 'zoekt.exe')) `
+        -index_dir $index `
+        'case:yes content:МаркерИсключенногоФайла'
+    if ($LASTEXITCODE -ne 0) {
+        throw 'zoekt exclusion search failed.'
+    }
+    if (($excludedOutput -join "`n") -match 'МаркерИсключенногоФайла') {
+        throw 'The extension filter indexed an excluded text file.'
     }
 
     $listener = [Net.Sockets.TcpListener]::new(
@@ -155,7 +174,9 @@ try {
     )
     & ([IO.Path]::Combine($bin, 'zoekt-index.exe')) `
         -disable_ctags `
+        -include_ext bsl `
         -index $index `
+        -name 'windows-bsl-smoke' `
         $corpus
     if ($LASTEXITCODE -ne 0) {
         throw 'Live reindexing failed while zoekt-webserver was running.'
@@ -186,6 +207,8 @@ try {
         Platform = [Environment]::OSVersion.VersionString
         Architecture = [Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
         Search = 'ДинамическийСписок'
+        RepositoryName = 'windows-bsl-smoke'
+        ExtensionFilter = 'ok'
         Webserver = 'ok'
         LiveReindex = 'ok'
     } | ConvertTo-Json
