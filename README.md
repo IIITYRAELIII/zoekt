@@ -82,6 +82,12 @@ This will start a web server with a simple search UI at http://localhost:6070.
 See the [query syntax docs](doc/query_syntax.md) for more details on the query
 language.
 
+#### Native Windows
+
+This fork restores native Windows builds with a zero-copy memory-mapped index
+reader. See [doc/windows.md](doc/windows.md) for build instructions, automated
+tests, provenance, and validation on a large 1C/BSL corpus.
+
 #### Container image
 
 Zoekt publishes a single container image at `ghcr.io/sourcegraph/zoekt`. It

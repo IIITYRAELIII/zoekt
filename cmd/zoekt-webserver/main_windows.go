@@ -12,12 +12,29 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//go:build windows
+
 package main
 
 import (
-	platform "golang.org/x/sys/windows"
+	"fmt"
+	"os"
+	"os/signal"
+	"path/filepath"
 )
 
-const PLATFORM_SIGTERM = platform.SIGTERM
+func notifyShutdownSignals(c chan<- os.Signal) {
+	signal.Notify(c, os.Interrupt)
+}
 
-// Memory map metrics are provided in metrics_nonlinux.go
+func diskUsagePath(path string) (string, error) {
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	volume := filepath.VolumeName(absolute)
+	if volume == "" {
+		return "", fmt.Errorf("path %q has no volume", absolute)
+	}
+	return volume + string(os.PathSeparator), nil
+}

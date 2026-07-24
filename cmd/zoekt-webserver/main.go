@@ -30,9 +30,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
-	"os/signal"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -351,8 +349,7 @@ func addProxyHandler(mux *http.ServeMux, socket string) {
 // times you will read the channel (used as buffer for signal.Notify).
 func shutdownSignalChan(maxReads int) <-chan os.Signal {
 	c := make(chan os.Signal, maxReads)
-	signal.Notify(c, os.Interrupt)     // terminal C-c and goreman
-	signal.Notify(c, PLATFORM_SIGTERM) // Kubernetes
+	notifyShutdownSignals(c)
 	return c
 }
 
@@ -462,15 +459,15 @@ Possible remediations:
 }
 
 func diskUsage(path string) (*disk.UsageStat, error) {
-	duPath := path
-	if runtime.GOOS == "windows" {
-		duPath = filepath.VolumeName(duPath)
+	duPath, err := diskUsagePath(path)
+	if err != nil {
+		return nil, fmt.Errorf("diskUsage path: %w", err)
 	}
 	usage, err := disk.Usage(duPath)
 	if err != nil {
 		return nil, fmt.Errorf("diskUsage: %w", err)
 	}
-	return usage, err
+	return usage, nil
 }
 
 func mustRegisterDiskMonitor(path string) {
@@ -479,10 +476,10 @@ func mustRegisterDiskMonitor(path string) {
 		Help:        "Amount of free space disk space.",
 		ConstLabels: prometheus.Labels{"path": path},
 	}, func() float64 {
-		// I know there is no error handling here, and I don't like it
-		// but there was no error handling in the previous version
-		// that used Statfs, either, so I'm assuming there's no need for it
-		usage, _ := diskUsage(path)
+		usage, err := diskUsage(path)
+		if err != nil {
+			return 0
+		}
 		return float64(usage.Free)
 	}))
 
@@ -491,10 +488,10 @@ func mustRegisterDiskMonitor(path string) {
 		Help:        "Amount of total disk space.",
 		ConstLabels: prometheus.Labels{"path": path},
 	}, func() float64 {
-		// I know there is no error handling here, and I don't like it
-		// but there was no error handling in the previous version
-		// that used Statfs, either, so I'm assuming there's no need for it
-		usage, _ := diskUsage(path)
+		usage, err := diskUsage(path)
+		if err != nil {
+			return 0
+		}
 		return float64(usage.Total)
 	}))
 }

@@ -41,6 +41,33 @@ jobs:
       - name: test
         run: go test ./...
 
+  windows:
+    name: windows
+    runs-on: windows-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v6
+
+      - name: setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.25.9'
+          cache: true
+
+      - name: test portable search packages
+        shell: pwsh
+        run: go test ./query ./search
+
+      - name: test Windows platform layer
+        shell: pwsh
+        run: |
+          go test ./index -run '^TestWindowsMmapedIndexFile' -count=1
+          go test ./cmd/zoekt-webserver -run '^TestDiskUsagePathWindows$' -count=1
+
+      - name: native Windows BSL smoke test
+        shell: pwsh
+        run: ./contrib/windows/Smoke-Test.ps1
+
   shellcheck:
     name: shellcheck
     runs-on: ubuntu-latest
